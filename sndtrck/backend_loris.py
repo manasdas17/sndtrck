@@ -1,4 +1,18 @@
+"""
+loris backend based on loristrck
+
+Will only work if loristrck is available. Loristrck is a simple wrapper 
+around the partial tracking library Loris, which differs from its built-in 
+python bindings in that it is not swig generated but implemented in cython. 
+It does not need Loris itself to be installed: it links directly to it and
+is compiled on the package itself. This makes installation much easier and
+reliable, since there are no PATH problems at compile or at runtime.
+Loris is only used to analyze the sound and is converted to an agnostic 
+data representation based on numpy arrays. This makes it easier to manipulate
+(the Loris bindings are horrible from a python stand-point).
+"""
 from . import bpfpartials
+from . import io
     
 def is_available():
     try:
@@ -7,14 +21,10 @@ def is_available():
     except ImportError:
         return False
 
-def _readsnd(snd):
-    if isinstance(snd, tuple):
-        return snd
-    from e import sndfileio
-    return sndfileio.read_sndfile(snd)
-
 def analyze(snd, resolution, window_width=None, **config):
     """
+    Analyze a soundfile for partial tracking. Depends on loristrck
+
     snd {string or (numpy.array, samplerate)} --> the soundfile as path or the samples and samplerate
     resolution   {Hz} --> the resolution of the analysis
     window_width {Hz} --> the width of the analysis window. If not given, it is 2*resolution
@@ -29,7 +39,7 @@ def analyze(snd, resolution, window_width=None, **config):
     amp_floor  --> only breakpoint above this amplitude are kept
     """
     import loristrck
-    samples, sr = _readsnd(snd)
+    samples, sr = io.readsnd(snd)
     if window_width is None:
         window_width = resolution * 2 # original Loris behaviour
     partials = loristrck.analyze(samples, sr, resolution, window_width, **config)
