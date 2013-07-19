@@ -10,13 +10,10 @@ def analyze_simpl(samples, sr, resolution, windowsize, hopsize):
     pd.hop_size = hopsize
     maxpeaks = _simpl_resolution_to_maxpeaks(resolution, sr)
     pd.max_peaks = maxpeaks
-
     peak_frames = pd.find_peaks(samples)
-
     pt = simpl.LorisPartialTracking(maxpeaks)
     partial_frames = pt.find_partials(peak_frames)
     return partial_frames
-
 
 def _simpl_maxpeaks_to_resolutioN(maxpeaks, sr):
     """

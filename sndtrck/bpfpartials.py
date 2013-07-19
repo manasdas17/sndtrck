@@ -402,7 +402,7 @@ def fromhdf5(path, method="fast"):
     try:
         import pandas
     except ImportError:
-        raise ImportError("hdf5 support is not available!")
+        raise ImportError("Could not find pandas. HDF5 support is not available!")
     store = pandas.HDFStore(path, mode="r")
     partials = []
     partials_append = partials.append
@@ -438,5 +438,3 @@ try:
     partial2dataframe = _partial2dataframe
 except ImportError:
     partial2dataframe = _noop
-
-        

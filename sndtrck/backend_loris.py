@@ -9,7 +9,7 @@ is compiled on the package itself. This makes installation much easier and
 reliable, since there are no PATH problems at compile or at runtime.
 Loris is only used to analyze the sound and is converted to an agnostic 
 data representation based on numpy arrays. This makes it easier to manipulate
-(the Loris bindings are horrible from a python stand-point).
+(the Loris bindings are not very nice to use from a python stand-point)
 """
 from . import bpfpartials
 from . import io
