@@ -1,3 +1,9 @@
+"""
+Pure python implementation of Partial Tracking analysis.
+
+NOT READY!
+"""
+
 from __future__ import division
 from bpf4 import bpf
 from numbers import Number
@@ -80,8 +86,6 @@ class ReassignedSpectrum(object):
         pass
     def time_correction(self, sample):
         pass
-
-
 
 def zeroeth_order_bessel(x):
     return i0(x)

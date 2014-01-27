@@ -1,3 +1,7 @@
+"""
+SIMPL backend
+"""
+
 def analyze_simpl(samples, sr, resolution, windowsize, hopsize):
     """
     frame_size -> window_size

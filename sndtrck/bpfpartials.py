@@ -1,18 +1,17 @@
-from __future__ import division
+from __future__ import division as _division
 from bpf4 import bpf
 from peach import *
-from collections import namedtuple
-import numpy
-import warnings
-import platform
-import logging
-from itertools import chain
+from collections import namedtuple as _namedtuple
+import numpy as np
+import warnings as _warnings
+import platform as _platform
+import logging as _logging
 
 __all__ = "Spectrum fromtxt fromcsv fromsdif fromhdf5".split()
 
-logging.basicConfig(format = ">> %(message)s")
-logger = logging.getLogger()
-logger.setLevel(logging.WARN)  # leave this line uncommented to see only warnings
+_logging.basicConfig(format = ">> %(message)s")
+_logger = _logging.getLogger()
+_logger.setLevel(_logging.WARN)  # leave this line uncommented to see only warnings
 
 def _noop(*args, **kws):
     """
@@ -22,7 +21,7 @@ def _noop(*args, **kws):
     """
     pass
 
-Breakpoint = namedtuple("Breakpoint", "freq amp phase bw")
+Breakpoint = _namedtuple("Breakpoint", "freq amp phase bw")
 
 ###################################################################
 #
@@ -31,7 +30,7 @@ Breakpoint = namedtuple("Breakpoint", "freq amp phase bw")
 ###################################################################
 class Partial(object):
     def __init__(self, id, times, freqs, amps, phase=None, bw=None):
-        times = numpy.array(times, dtype=float)
+        times = np.array(times, dtype=float)
         self.freq = bpf.core.Linear(times, freqs)
         self.amp = bpf.core.Linear(times, amps)
         self.phase = phase if phase else bpf.core.Const(0)
@@ -110,7 +109,7 @@ DURCURVES = {
     'low': bpf.linear(0, 0, 0.01, -20, 0.1, -40, 0.2, -80, 0.4, -120)
 }
 
-_SpectrumFilter = namedtuple("_SpectrumFilter", "selected rejected")
+_SpectrumFilter = _namedtuple("_SpectrumFilter", "selected rejected")
 
 #######################################################################
 #
@@ -156,6 +155,7 @@ class Spectrum(object):
                     out_append(partial)
             out.reverse()
         return out
+
     def chord_at(self, t, maxnotes=None, minamp=-50):
         """
         a quick way to query a spectrum at a given time
@@ -169,6 +169,7 @@ class Spectrum(object):
         data2 = [(f2m(f), a) for a, f in data if a >= minamp]
         out = _Chord(data2)
         return out
+
     def filter_quick(self, mindur=0, minamp= -90, minfreq=0, maxfreq=24000):
         """
         intended for a quick filtering of undesired partials
@@ -187,6 +188,7 @@ class Spectrum(object):
             elif not (minfreq < p.meanfreq() < maxfreq):
                 no_append(p)
         return Spectrum(no)
+
     def filter(self, freqcurve='instrumental', durcurve='low'):
         """
         return too Spectrums, one which satisfies the given criteria, and the resisuum
@@ -275,7 +277,7 @@ def _call_spear_with(path):
     f = {
         'Darwin' : osx,
         'Windows' : win
-    }.get(platform.system())
+    }.get(_platform.system())
     if f:
         f(path)
 
@@ -289,7 +291,7 @@ def _write_partials_as_spear(spectrum, outfile):
     f_write("point-type time frequency amplitude\n")
     f_write("partials-count %d\n" % len(spectrum))
     f_write("partials-data\n")
-    column_stack = numpy.column_stack
+    column_stack = np.column_stack
     for p in spectrum:
         times, freqs = p.freq.points()
         _, amps = p.amp.points()
@@ -325,7 +327,7 @@ def _write_as_csv(spectrum, outfile):
     def writepartial(stream, partial):
         time, freq = partial.freq.points()
         _, amp = partial.amp.points()
-        data = column_stack((numpy.ones_like(amp, dtype=int)*partial.id, time, freq, amp))
+        data = column_stack((np.ones_like(amp, dtype=int)*partial.id, time, freq, amp))
         savetxt(stream, data, delimiter=",", fmt=["%d", "%.18e", "%.18e", "%.18e"])
     stream.write("id,time,freq,amp\n")
     for p in spectrum:
@@ -373,7 +375,7 @@ def fromtxt(path, debug=True):
     skipped = 0
     while npartials > 0:
         partial_id = float(nextline().split()[0])
-        data = numpy.fromstring(nextline(), sep=" ", dtype=float)
+        data = np.fromstring(nextline(), sep=" ", dtype=float)
         times = data[::3]
         freqs = data[1::3]
         amps = data[2::3]
@@ -383,7 +385,7 @@ def fromtxt(path, debug=True):
             for i in range(10):
                 same = times[1:] - times[:-1] == 0
                 if same.any():
-                    logger.warn("duplicate points found")
+                    _logger.warn("duplicate points found")
                     times[1:][same] += EPSILON
                 else:
                     break
@@ -395,7 +397,7 @@ def fromtxt(path, debug=True):
             skipped += 1
         npartials -= 1
     if skipped:
-        logger.warn("Skipped %d partials without duration" % skipped)
+        _logger.warn("Skipped %d partials without duration" % skipped)
     return Spectrum(partials)
 
 def fromhdf5(path, method="fast"):
