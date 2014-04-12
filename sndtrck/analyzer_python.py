@@ -53,6 +53,7 @@ class ReassignedSpectrum(object):
         self.magnitude_transform = FourierTransform(1 << (1 + next_power_of_2( window.size )))
         self.correction_transform = FourierTransform(1 << (1 + next_power_of_2( window.size )))
         self.build_reassignment_windows(window, window_deriv)
+
     def build_reassignment_windows(self, window, window_deriv):
         winsum = window.sum()
         self.Window = window * (2/winsum)
@@ -62,10 +63,12 @@ class ReassignedSpectrum(object):
         tframp = time_ramped(framp)
         self.cplx_win_wd_wt = make_complex(framp, tramp)
         self.cplx_win_w_wtd = make_complex(self.Window, tframp)
+
     def apply_time_ramp(self, vec):
         offset = 0.5 * (vec.size - 1)
         k = np.arange(0, vec.size)
         vec *= (k - offset)
+
     @property
     def size(self):
         return self.magnitude_transform.size
@@ -89,34 +92,9 @@ class ReassignedSpectrum(object):
 
 def zeroeth_order_bessel(x):
     return i0(x)
-    """
-    eps = 0.000001
-    #  initialize the series term for m=0 and the result
-    bessel_value = 0
-    term = 1
-    m = 0
-    # accumulate terms as long as they are significant
-    while term  > eps * bessel_value:
-        bessel_value += term;
-        # update the term
-        m += 1
-        term *= (x*x) / (4*m*m);
-    return bessel_value
-    """
 
 def first_order_bessel(x):
     return i1(x)
-    """
-    eps = 0.000001
-    bessel_value = 0
-    term = 0.5 * x
-    m = 0
-    while term > eps*bessel_value:
-        bessel_value += term
-        m += 1
-        term *= (x*x) / (4*m*(m+1))
-    return bessel_value
-    """
 
 class KaiserWindow(object):
     @staticmethod
@@ -130,6 +108,7 @@ class KaiserWindow(object):
         else:
              alpha = 0.0
         return alpha
+
     @staticmethod
     def compute_length(width, alpha):
         """
@@ -140,6 +119,7 @@ class KaiserWindow(object):
         returns the size of the window in samples
         """
         return int(1.0 + (2. * sqrt((PI*PI) + (alpha*alpha)) / (PI * width)))
+
     @staticmethod
     def build_window(size, shape, method='numpy'):
         if method == 'numpy':
@@ -151,11 +131,13 @@ class KaiserWindow(object):
             A = np.sqrt(1 - (K*K))
             win = zeroeth_order_bessel(shape*A) * (1/zeroeth_order_bessel(shape))
             return win
+
     @staticmethod
     def build(width, atten=90):
         alpha = KaiserWindow.compute_shape(atten)
         length = KaiserWindow.compute_length(width, alpha)
         return KaiserWindow.build_window(length, alpha)
+
     @staticmethod
     def build_time_derivative_window(winsize, shape):
         N = winsize - 1
@@ -243,6 +225,7 @@ class Analyzer(object):
             self.sidelobe_level, self.window_width, sr, must_be_odd=True
         )
         spectrum = ReassignedSpectrum(window, window_deriv)
+
 def debug(s):
     if DEBUG:
         print s
