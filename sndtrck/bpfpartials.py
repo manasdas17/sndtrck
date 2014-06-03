@@ -44,8 +44,9 @@ class Partial(object):
         self._meanfreq = -1
         self._meanamp = -1
         self._wmeanfreq = -1
+        
     @staticmethod
-    def fromarray(data, id=0):
+    def fromarray(data, partialid=0):
         """
         data is a 2D array with the shape (numbreakpoints, 5)
         columns: time freq amp phase bw
@@ -55,17 +56,23 @@ class Partial(object):
         amp   = data[:,2].copy()
         phase = data[:,3].copy()
         bw    = data[:,4].copy()
-        return Partial(id, times, freqs, amps, phase, bw)
+        return Partial(partialid, times, freqs, amps, phase, bw)
+    
     def __repr__(self):
         return "Partial %d [%.4f:%.4f]" % (self.id, self.t0, self.t1)
+    
     def __eq__(self, other):
+        if self is other:
+            return True
         t0, f0 = self.freq.points()
         _, a0 = self.amp.points()
         t1, f1 = other.freq.points()
         _, a1 = other.amp.points()
         return (t0 == t1).all() and (f0 == f1).all() and (a0 == a1).all()
+    
     def data_at(self, t):
         return Breakpoint(self.freq(t), self.amp(t), self.phase(t), self.bw(t))
+    
     @property
     def meanfreq(self):
         if self._meanfreq >= 0:
@@ -73,6 +80,7 @@ class Partial(object):
         mean = self.freq.integrate_between(self.t0, self.t1) / (self.t1 - self.t0)
         self._meanfreq = mean
         return mean
+    
     @property
     def meanfreq_weighted(self):
         """
@@ -87,6 +95,7 @@ class Partial(object):
             out = 0
         self._wmeanfreq = out
         return out
+    
     @property
     def meanamp(self):
         if self._meanamp >= 0:
@@ -94,6 +103,7 @@ class Partial(object):
         out = self.amp.integrate_between(self.t0, self.t1) / (self.t1 - self.t0)
         self._meanamp = out
         return out
+    
     def __contains__(self, t):
         return self.t0 <= t <= self.t1
 
@@ -125,20 +135,26 @@ class Spectrum(object):
         self.partials = list(partials) if not isinstance(partials, list) else partials
         self.partials.sort(key=lambda p:p.t0)
         self.reset()
+        
     def reset(self):
         self.t0 = min(p.t0 for p in partials)
         self.t1 = max(p.t1 for p in partials)
+        
     def __repr__(self):
         return "Spectrum [%.4f:%.4f]: %d partials" % (self.t0, self.t1, len(self.partials))
+    
     def __iter__(self):
         return iter(self.partials)
+    
     def __eq__(self, other):
         for p0, p1 in zip(self, other):
             if p0 != p1:
                 return False
         return True
+    
     def partials_at(self, t):
         return self.partials_between(t, t + 1e-12)
+    
     def partials_between(self, t0, t1):
         out = []; out_append = out.append
         if (t0+t1) * 0.5 < (self.t0 + self.t1) * 0.5:
@@ -232,27 +248,33 @@ class Spectrum(object):
             else:
                 above.append( p )
         return _SpectrumFilter(self.__class__(above), self.__class__(below))
-    def copy(self, deep=False):
+    
+    def copy(self):
         return self.__class__(self.partials[:])
+    
     def __getitem__(self, n):
         # TODO: support slicing
         return self.partials[n]
+    
     def __len__(self):
         return len(self.partials)
+    
     def show(self):
         self._show_in_spear()
+        
     def _show_in_spear(self):
         outfile = 'tmp.txt'
         _write_partials_as_spear(self.partials, outfile)
         _call_spear_with(outfile)
+        
     def write(self, outfile):
         """
         write the partial information as
 
         .txt  : in the format defined by spear
         .sdif : SDIF format (not implemented) #TODO
-        .csv  : dump all partials in csv format (partial-id, time, freq, amp) --not implemented
-        .hdf5 :
+        .csv  : dump all breakpoints to csv with columns [partial-id, time, freq, amp]
+        .hdf5 : 
         """
         base, ext = os.path.splitext(outfile)
         if ext == '.txt':
@@ -440,3 +462,4 @@ try:
     partial2dataframe = _partial2dataframe
 except ImportError:
     partial2dataframe = _noop
+
