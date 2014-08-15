@@ -1,0 +1,1 @@
+class FunctionalityNotAvailable(BaseException): pass
