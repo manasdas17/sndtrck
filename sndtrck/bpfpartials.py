@@ -31,10 +31,12 @@ Breakpoint = _namedtuple("Breakpoint", "freq amp phase bw")
 class Partial(object):
     def __init__(self, id, times, freqs, amps, phase=None, bw=None):
         times = np.array(times, dtype=float)
-        self.freq = bpf.core.Linear(times, freqs)
-        self.amp = bpf.core.Linear(times, amps)
-        self.phase = phase if phase else bpf.core.Const(0)
-        self.bw = bw if bw else bpf.core.Const(0)
+        def linear(a):
+            return bpf.core.Linear(times, a)
+        self.freq = linear(freqs)
+        self.amp = linear(amps)
+        self.phase = linear(phase) if phase is not None else bpf.core.Const(0)
+        self.bw = linear(bw) if bw is not None else bpf.core.Const(0)
         self.id = id
         self.t0 = t0 = times[0]
         self.t1 = t1 = times[-1]
@@ -44,6 +46,10 @@ class Partial(object):
         self._meanfreq = -1
         self._meanamp = -1
         self._wmeanfreq = -1
+
+    @property
+    def numbreakpoints(self):
+        return len(self.freq.points()[0])
         
     @staticmethod
     def fromarray(data, partialid=0):
@@ -51,12 +57,16 @@ class Partial(object):
         data is a 2D array with the shape (numbreakpoints, 5)
         columns: time freq amp phase bw
         """
-        time  = data[:,0].copy()
-        freq  = data[:,1].copy()
-        amp   = data[:,2].copy()
-        phase = data[:,3].copy()
-        bw    = data[:,4].copy()
-        return Partial(partialid, times, freqs, amps, phase, bw)
+        def as_c_contiguous(a):
+            if not a.flags.c_contiguous:
+                return a.copy()
+            return a
+        time  = as_c_contiguous(data[:,0])
+        freq  = as_c_contiguous(data[:,1])
+        amp   = as_c_contiguous(data[:,2])
+        phase = as_c_contiguous(data[:,3])
+        bw    = as_c_contiguous(data[:,4])
+        return Partial(partialid, time, freq, amp, phase, bw)
     
     def __repr__(self):
         return "Partial %d [%.4f:%.4f]" % (self.id, self.t0, self.t1)
@@ -104,7 +114,7 @@ class Partial(object):
         self._meanamp = out
         return out
     
-    def __contains__(self, t):
+    def intersects(self, t):
         return self.t0 <= t <= self.t1
 
 #############################################
@@ -137,8 +147,8 @@ class Spectrum(object):
         self.reset()
         
     def reset(self):
-        self.t0 = min(p.t0 for p in partials)
-        self.t1 = max(p.t1 for p in partials)
+        self.t0 = min(p.t0 for p in self.partials)
+        self.t1 = max(p.t1 for p in self.partials)
         
     def __repr__(self):
         return "Spectrum [%.4f:%.4f]: %d partials" % (self.t0, self.t1, len(self.partials))
@@ -182,26 +192,22 @@ class Spectrum(object):
         if maxnotes is not None:
             data = data[:maxnotes]
         minamp = db2amp(minamp)
-        data2 = [(f2m(f), a) for a, f in data if a >= minamp]
-        out = _Chord(data2)
+        data2 = [(f2m(f), amp2db(a)) for a, f in data if a >= minamp]
+        out = _Notes(data2)
         return out
 
     def filter_quick(self, mindur=0, minamp= -90, minfreq=0, maxfreq=24000):
         """
         intended for a quick filtering of undesired partials
 
-        minamp (dB): 
+        Returns a new Spectrum with the partials satisfying the given conditions
 
         SEE ALSO: filter
         """
         no = []
         no_append = no.append
         for p in self.partials:
-            if p.duration < mindur:
-                no_append(p)
-            elif p.meanamp() < minamp:
-                no_append(p)
-            elif not (minfreq < p.meanfreq() < maxfreq):
+            if p.duration > mindur and p.meanamp > minamp and minfreq <= p.meanfreq < maxfreq:
                 no_append(p)
         return Spectrum(no)
 
@@ -306,7 +312,14 @@ def _call_spear_with(path):
 ################################################
 # IO
 ################################################
-def _write_partials_as_spear(spectrum, outfile):
+def _write_partials_as_spear(spectrum, outfile, use_comma=True):
+    """
+    writes the partials in the text format defined by SPEAR 
+    (Export Format/Text - Partials)
+
+    The IDs of the partials are lost, partials are enumerated
+    in the order defined in the Spectrum
+    """
     f = open(outfile, 'wb')
     f_write = f.write
     f_write("par-text-partials-format\n")
@@ -314,14 +327,19 @@ def _write_partials_as_spear(spectrum, outfile):
     f_write("partials-count %d\n" % len(spectrum))
     f_write("partials-data\n")
     column_stack = np.column_stack
-    for p in spectrum:
+    for i, p in enumerate(spectrum):
         times, freqs = p.freq.points()
         _, amps = p.amp.points()
         data = column_stack((times, freqs, amps)).flatten()
-        f_write("%d %d %f %f\n" % (p.id, len(times), p.t0, p.t1))
-        data_as_string = (str(n) for n in data)
-        datastr = " ".join(str(n) for n in data)
-        f_write(datastr + '\n')
+        assert len(data) == 3 * p.numbreakpoints
+        header = "%d %d %f %f\n" % (i, len(times), p.t0, p.t1)
+        datastr = " ".join("%f" % n for n in data)
+        if use_comma:
+            header = header.replace(".", ",")
+            datastr = datastr.replace(".", ",")
+        f_write(header)
+        f_write(datastr)
+        f_write('\n')
 
 def _write_as_hdf5(spectrum, outfile):
     try:
@@ -455,6 +473,29 @@ def _partial2dataframe(partial):
     time, freq = partial.freq.points()
     _, amp = partial.amp.points()
     return DataFrame({'time':time, 'freq':freq, 'amp':amp})
+
+class _Notes(object):
+    def __init__(self, notes):
+        """
+        a note is a midinote or a tuple (midinote, amp_in_dbs)
+        """
+        _notes = []
+        for n in notes:
+            if isinstance(n, (tuple, list)):
+                _notes.append(n)
+            else:
+                _notes.append((n, 0))
+        self.notes = _notes
+    def __str__(self):
+        lines = []
+        for n in self.notes:
+            midinote, amp = n
+            pitchstr = m2n(midinote).ljust(6)
+            l = "%s | %d" % (pitchstr, int(amp))
+            lines.append(l)
+        return "\n".join(lines)
+
+
         
 try:
     import pandas

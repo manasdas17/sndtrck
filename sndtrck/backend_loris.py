@@ -21,7 +21,7 @@ def is_available():
     except ImportError:
         return False
 
-def analyze(snd, resolution, window_width=None, **config):
+def analyze(snd, resolution, window_width=None, verbose=False, **config):
     """
     Analyze a soundfile for partial tracking. Depends on loristrck
 
@@ -39,21 +39,30 @@ def analyze(snd, resolution, window_width=None, **config):
     amp_floor  --> only breakpoint above this amplitude are kept
     """
     import loristrck
-    samples, sr = io.readsnd(snd)
+    if verbose:
+        print("reading sndfile")
+    samples, sr = io.sndread(snd)
     if window_width is None:
         window_width = resolution * 2 # original Loris behaviour
+    if verbose: print("analyzong samples")
     partials = loristrck.analyze(samples, sr, resolution, window_width, **config)
+    if verbose: print("converting to Spectrum")
     return _partialsgen_to_spectrum(partials)
 
-def _partialsgen_to_spectrum(partials):
+def _partialsgen_to_spectrum(partials, verbose=True):
     """
     partials: as returned by loristrck.analyze, a generator of label, data
     """
     partial_list = []
     fromarray = bpfpartials.Partial.fromarray
     for label, data in partials:
-        partial = fromarray(data)
-        partial_list.append(partial)
+        times = data[:,0]
+        if len(times) > 1 and times[-1] - times[0] > 0:
+            partial = fromarray(data)
+            partial_list.append(partial)
+        else:
+            if verbose:
+                print("skipping short partial")
     return bpfpartials.Spectrum(partial_list)
 
 def read_sdif(sdiffile):

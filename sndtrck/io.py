@@ -1,4 +1,9 @@
-from . import backend_loris
+from .errors import *
+"""
+io.py 
+
+This module should not depend on any internal module other than .errors 
+"""
 
 def _sndfileio_msg():
     print """
@@ -21,9 +26,19 @@ except ImportError:
     _sndfileio_msg()
     raise ImportError("sndfileio could not be found")
 
-if backend_loris.is_available():
-    sdifread = backend_loris.read_sdif
-del backend_loris
+def sdifread(sdiffile):
+    """
+    Reads a SDIF file.
+
+    Returns: A Spectrum instance
+
+    Raises FunctionalityNotAvailable if no backend implements this
+    """
+    from . import backend_loris
+    if backend_loris.is_available():
+        return backend_loris.read_sdif(sdiffile)
+    else:
+        raise FunctionalityNotAvailable("No Backend implements SDIF reading")
 
 def sndread(path):
     """
