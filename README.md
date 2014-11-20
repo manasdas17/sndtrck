@@ -44,15 +44,18 @@ Install FFTW (follow instructions [here](http://www.fftw.org/install/windows.htm
 
 # Basic Usage
 
-    >>> import sndtrck
-    >>> spectrum = sndtrck.analyze("/path/to/sndfile", resolution=50)
-    # Get the chord at 500ms, but only the partials louder than -30 dB
-    >>> print spectrum.chord_at(0.5, minamp=-30) 
-    [A3+, C5+10, E5-13]
-    >>> spectrum.plot()  # this will generate a matplotlib plot of the partials
-    >>> spectrum.show()  # this will show you the spectrum in the default application
-                         # for your system
-    >>> spectrum.write("spectrum.sdif")
+```python
+
+import sndtrck
+spectrum = sndtrck.analyze("/path/to/sndfile", resolution=50)
+
+# Get the chord at 500ms, but only the partials louder than -30 dB
+print(spectrum.chord_at(0.5, minamp=-30))
+# [A3+, C5+10, E5-13]
+spectrum.plot()  # this will generate a matplotlib plot of the partials
+spectrum.show()  # this will show you the spectrum in the default applicatio for your system
+spectrum.write("spectrum.sdif")
+```
 
 # Features
 
