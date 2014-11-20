@@ -382,6 +382,9 @@ def fromarray(partials):
     return Spectrum(partial_list)
 
 def merge(*spectra):
+    """
+    Merge two spectra into a third one
+    """
     partials = []
     for spectrum in spectra:
         partials.extend(spectrum.partials)

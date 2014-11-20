@@ -1,5 +1,9 @@
 import bpf4
 
+__all__ = [
+    "bpf2partial"
+]
+
 def bpf2partial(freq, amp=None, dt=None):
     """
     Create a Partial from a bpf representing

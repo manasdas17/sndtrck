@@ -18,8 +18,28 @@ A simple data-type and io routines for audio partial tracking
 
 # Installation
 
+## OSX
+
+    $ brew install fftw
     $ git clone https://github.com/gesellkammer/sndtrck
     $ cd sndtrck
+    $ pip install -r requirements.txt
+    $ python setup.py install
+    
+## Linux
+
+    $ git clone https://github.com/gesellkammer/sndtrck
+    $ cd sndtrck
+    $ pip install -r requirements.txt
+    $ python setup.py install
+
+## Windows
+
+Install FFTW (follow instructions [here](http://www.fftw.org/install/windows.html))
+
+    $ git clone https://github.com/gesellkammer/sndtrck
+    $ cd sndtrck
+    $ pip install -r requirements.txt
     $ python setup.py install
 
 # Basic Usage
