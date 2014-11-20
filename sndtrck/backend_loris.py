@@ -10,16 +10,37 @@ reliable, since there are no PATH problems at compile or at runtime.
 Loris is only used to analyze the sound and is converted to an agnostic 
 data representation based on numpy arrays. This makes it easier to manipulate
 (the Loris bindings are not very nice to use from a python stand-point)
+
+A backend should implement:
+
+is_available() -> bool
+get_info() --> dict 
+               {
+                'analyze': bool,
+                'read_sdif': bool,
+                'write_sdif': bool
+               }
+
 """
-from . import bpfpartials
+from . import spectrum as _spectrum
 from . import io
+from .errors import *
+
+try:
+    import loristrck
+    AVAILABLE = True
+except ImportError:
+    AVAILABLE = False
     
 def is_available():
-    try:
-        import loristrck
-        return True
-    except ImportError:
-        return False
+    return AVAILABLE
+
+def get_info():
+    return {
+        'analyze': True,
+        'read_sdif': True,
+        'write_sdif': True
+    }
 
 def analyze(snd, resolution, window_width=None, verbose=False, **config):
     """
@@ -38,7 +59,8 @@ def analyze(snd, resolution, window_width=None, verbose=False, **config):
     sidelobe_level --> positive dB. Sets the shape of the Kaiser window used
     amp_floor  --> only breakpoint above this amplitude are kept
     """
-    import loristrck
+    if not AVAILABLE:
+        raise BackendNotAvailable("loristrck not available")
     if verbose:
         print("reading sndfile")
     samples, sr = io.sndread(snd)
@@ -47,26 +69,20 @@ def analyze(snd, resolution, window_width=None, verbose=False, **config):
     if verbose: print("analyzong samples")
     partials = loristrck.analyze(samples, sr, resolution, window_width, **config)
     if verbose: print("converting to Spectrum")
-    return _partialsgen_to_spectrum(partials)
-
-def _partialsgen_to_spectrum(partials, verbose=True):
-    """
-    partials: as returned by loristrck.analyze, a generator of label, data
-    """
-    partial_list = []
-    fromarray = bpfpartials.Partial.fromarray
-    for label, data in partials:
-        times = data[:,0]
-        if len(times) > 1 and times[-1] - times[0] > 0:
-            partial = fromarray(data)
-            partial_list.append(partial)
-        else:
-            if verbose:
-                print("skipping short partial")
-    return bpfpartials.Spectrum(partial_list)
+    return _spectrum.fromarray(partials)
 
 def read_sdif(sdiffile):
-    import loristrckr
-    partials = loristrckr.read_sdif(sdiffile)
-    return _partialsgen_to_spectrum(partials)
+    if not AVAILABLE:
+        raise BackendNotAvailable("loristrck not available")
+    partials = loristrck.read_sdif(sdiffile)
+    return _spectrum.fromarray(partials)
 
+def write_sdif(outfile, matrices, labels=None, rbep=True, fadetime=0):
+    """
+    partials: a seq. of (label, matrix) where matrix is a 2D array with columns 
+              [time, freq, amp, phase, bw]
+
+    """
+    if not AVAILABLE:
+        raise BackendNotAvailable("loristrck not available")
+    loristrck.write_sdif(outfile, matrices, labels=labels, rbep=rbep, fadetime=fadetime)

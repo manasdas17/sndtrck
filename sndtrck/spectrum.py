@@ -5,13 +5,12 @@ from collections import namedtuple as _namedtuple
 import numpy as np
 import warnings as _warnings
 import platform as _platform
-import logging as _logging
 
-__all__ = "Spectrum fromtxt fromcsv fromsdif fromhdf5".split()
+from . import music as _music
+from .log import get_logger
 
-_logging.basicConfig(format = ">> %(message)s")
-_logger = _logging.getLogger()
-_logger.setLevel(_logging.WARN)  # leave this line uncommented to see only warnings
+_logger = get_logger()
+
 
 def _noop(*args, **kws):
     """
@@ -67,7 +66,14 @@ class Partial(object):
         phase = as_c_contiguous(data[:,3])
         bw    = as_c_contiguous(data[:,4])
         return Partial(partialid, time, freq, amp, phase, bw)
-    
+
+    def toarray(self):
+        time, freq = self.freq.points()
+        _, amp = self.amp.points()
+        _, phase = self.phase.points()
+        _, bw = self.bw.points()
+        return np.column_stack((time, freq, amp, phase, bw))
+        
     def __repr__(self):
         return "Partial %d [%.4f:%.4f]" % (self.id, self.t0, self.t1)
     
@@ -117,6 +123,15 @@ class Partial(object):
     def intersects(self, t):
         return self.t0 <= t <= self.t1
 
+    def resample(self, dt):
+        N = (self.t1 - self.t0) / dt
+        times = np.linspace(self.t0, self.t1, N)
+        f = self.freq.map(times)
+        a = self.amp.map(times)
+        ph = self.phase.map(times)
+        bw = self.bw.map(times)
+        return Partial(self.id, times, f, a, ph, bw)
+
 #############################################
 # Filter presets
 #############################################
@@ -129,7 +144,7 @@ DURCURVES = {
     'low': bpf.linear(0, 0, 0.01, -20, 0.1, -40, 0.2, -80, 0.4, -120)
 }
 
-_SpectrumFilter = _namedtuple("_SpectrumFilter", "selected rejected")
+_SpectrumFilter = _namedtuple("SpectrumFilter", "selected rejected")
 
 #######################################################################
 #
@@ -141,14 +156,21 @@ class Spectrum(object):
         """
         You normally dont create a Spectrum from scratch, but read it from a file
         (txt, sdif, or any sound file which can be analyzed)
+
+        partials: a seq. of Partial
+
+        See Also:
+
+        fromarray, io.fromsdif, io.fromcsv, io.fromtxt, io.fromhdf5
         """
+        assert all(isinstance(partial, Partial) for partial in partials)
         self.partials = list(partials) if not isinstance(partials, list) else partials
         self.partials.sort(key=lambda p:p.t0)
         self.reset()
         
     def reset(self):
-        self.t0 = min(p.t0 for p in self.partials)
-        self.t1 = max(p.t1 for p in self.partials)
+        self.t0 = min(p.t0 for p in self.partials) if self.partials else 0
+        self.t1 = max(p.t1 for p in self.partials) if self.partials else 0
         
     def __repr__(self):
         return "Spectrum [%.4f:%.4f]: %d partials" % (self.t0, self.t1, len(self.partials))
@@ -193,7 +215,7 @@ class Spectrum(object):
             data = data[:maxnotes]
         minamp = db2amp(minamp)
         data2 = [(f2m(f), amp2db(a)) for a, f in data if a >= minamp]
-        out = _Notes(data2)
+        out = _music.Notes(data2)
         return out
 
     def filter_quick(self, mindur=0, minamp= -90, minfreq=0, maxfreq=24000):
@@ -204,12 +226,11 @@ class Spectrum(object):
 
         SEE ALSO: filter
         """
-        no = []
-        no_append = no.append
+        out = []
         for p in self.partials:
-            if p.duration > mindur and p.meanamp > minamp and minfreq <= p.meanfreq < maxfreq:
-                no_append(p)
-        return Spectrum(no)
+            if p.duration > mindur and p.meanamp > minamp and (minfreq <= p.meanfreq < maxfreq):
+                out.append(p)
+        return Spectrum(out)
 
     def filter(self, freqcurve='instrumental', durcurve='low'):
         """
@@ -245,11 +266,11 @@ class Spectrum(object):
         if durcurve:
             durcurve_amp = durcurve.apply(db2amp).sampled(durcurve.ntodx(200))
         for p in self.partials:
-            minamp = freqcurve_amp( p.wmeanfreq() )
+            minamp = freqcurve_amp( p.meanfreq_weighted )
             if durcurve:
                 dur_minamp = durcurve_amp( p.duration )
                 minamp = min(minamp, dur_minamp)
-            if p.meanamp() < minamp:
+            if p.meanamp < minamp:
                 below.append( p )
             else:
                 above.append( p )
@@ -269,29 +290,104 @@ class Spectrum(object):
         self._show_in_spear()
         
     def _show_in_spear(self):
+        from . import io
         outfile = 'tmp.txt'
-        _write_partials_as_spear(self.partials, outfile)
+        self.write(outfile)
         _call_spear_with(outfile)
-        
-    def write(self, outfile):
+
+    def write(self, outfile, **options):
         """
         write the partial information as
 
         .txt  : in the format defined by spear
-        .sdif : SDIF format (not implemented) #TODO
-        .csv  : dump all breakpoints to csv with columns [partial-id, time, freq, amp]
-        .hdf5 : 
+        .sdif : SDIF format. 
+                Options:
+                    rbep (bool): if True, save in RBEP format (default)
+                                 if False, save in 1TRC format.
+        .csv  : dump all breakpoints to csv with columns 
+                [partial-id, time, freq, amp]
+        .hdf5 : use a HDF5 based format
         """
+        from . import io
+        func = {
+            '.txt' : io.tospear,
+            '.hdf5': io.tohdf5,
+            '.h5'  : io.tohdf5,
+            '.sdif': io.tosdif,
+            '.csv' : io.tocsv
+        }
         base, ext = os.path.splitext(outfile)
-        if ext == '.txt':
-            _write_partials_as_spear(self.partials, outfile)
-        elif ext == '.hdf5' or ext == '.h5':
-            _write_as_hdf5(self, outfile)
-        elif ext == ".csv":
-            _write_as_csv(self, outfile)
+        if ext in func:
+            return func[ext](self, outfile, **options)
         else:
-            raise RuntimeError("Format not supported")
+            raise ValueError("Format not supported")
+
+    def writesdif(self, outfile, rbep=True, fadetime=0):
+        """
+        Write this spectrum to sdif
+
+        rbep: saves the data as is, does not resample to 
+              a common timegrid. This format is recommended
+              over 1TRC if your software supports it
+              If False, the partials are resampled to fit to 
+              a common timegrid. They are saved in the 1TRC
+              format.
+
+        fadetime: if > 0, a fade-in or fade-out will be added
+                  (with the given duration) for the partials 
+                  which either start or end with a breakpoint
+                  with an amplitude higher than 0
+        """
+        from . import io
+        return io.tosdif(self, outfile, rbep=rbep, fadetime=fadetime)
+
+    def toarray(self):
+        """
+        Returns a tuple (matrices, labels), where matrices is an iterator of
+        matrix --> 2D array with columns [time freq amp phase bw]
+        """
+        matrices = (partial.toarray() for partial in self)
+        labels = [partial.id for partial in self]
+        return matrices, labels
+
+    def resample(self, dt):
+        """
+        Returns a new Spectrum, resampled using dt as sampling period
+        """
+        partials = [p.resample(dt) for p in self.partials]
+        return Spectrum(partials)
+
+        
     # <--------------------------------- END Spectrum
+
+def fromarray(partials):
+    """
+    construct a Spectrum from array data
+
+    partials: a seq. of (label, matrix), where matrix is a 2D array with columns
+              [time, freq, amp, phase, bw]
+    """
+    partial_list = []
+    for label, matrix in partials:
+        times = matrix[:,0]
+        if len(times) > 1 and times[-1] - times[0] > 0:
+            freq = matrix[:, 1]
+            amp = matrix[:, 2]
+            phase = matrix[:, 3]
+            bw = matrix[:, 4]
+            partial = Partial(label, times, freq, amp, phase, bw)
+            partial_list.append(partial)
+        else:
+            _logger.debug("skipping short partial")
+    return Spectrum(partial_list)
+
+def merge(*spectra):
+    partials = []
+    for spectrum in spectra:
+        partials.extend(spectrum.partials)
+    s = Spectrum(partials)
+    return s
+
 
 #################################################
 # HELPERS
@@ -312,189 +408,11 @@ def _call_spear_with(path):
 ################################################
 # IO
 ################################################
-def _write_partials_as_spear(spectrum, outfile, use_comma=True):
-    """
-    writes the partials in the text format defined by SPEAR 
-    (Export Format/Text - Partials)
-
-    The IDs of the partials are lost, partials are enumerated
-    in the order defined in the Spectrum
-    """
-    f = open(outfile, 'wb')
-    f_write = f.write
-    f_write("par-text-partials-format\n")
-    f_write("point-type time frequency amplitude\n")
-    f_write("partials-count %d\n" % len(spectrum))
-    f_write("partials-data\n")
-    column_stack = np.column_stack
-    for i, p in enumerate(spectrum):
-        times, freqs = p.freq.points()
-        _, amps = p.amp.points()
-        data = column_stack((times, freqs, amps)).flatten()
-        assert len(data) == 3 * p.numbreakpoints
-        header = "%d %d %f %f\n" % (i, len(times), p.t0, p.t1)
-        datastr = " ".join("%f" % n for n in data)
-        if use_comma:
-            header = header.replace(".", ",")
-            datastr = datastr.replace(".", ",")
-        f_write(header)
-        f_write(datastr)
-        f_write('\n')
-
-def _write_as_hdf5(spectrum, outfile):
-    try:
-        import pandas
-        from pandas import DataFrame
-    except ImportError:
-        raise ImportError("pandas not found. hdf5 is not supported!")
-    store = pandas.HDFStore(outfile)
-    def partial_id(p):
-        return "p%d" % (int(p.id))
-    def as_dataframe(p):
-        time, freq = p.freq.points()
-        _, amp = p.amp.points()
-        return DataFrame({'time':time, 'amp':amp, 'freq':freq})
-    for p in spectrum:
-        store.put(partial_id(p), as_dataframe(p))
-    store.flush()
-    store.close()
-
-def _write_as_csv(spectrum, outfile):
-    from cStringIO import StringIO
-    stream = open(outfile, "w")
-    column_stack = np.column_stack
-    savetxt = np.savetxt
-    def writepartial(stream, partial):
-        time, freq = partial.freq.points()
-        _, amp = partial.amp.points()
-        data = column_stack((np.ones_like(amp, dtype=int)*partial.id, time, freq, amp))
-        savetxt(stream, data, delimiter=",", fmt=["%d", "%.18e", "%.18e", "%.18e"])
-    stream.write("id,time,freq,amp\n")
-    for p in spectrum:
-        writepartial(stream, p)
-    stream.flush()
-    stream.close()
-
-def fromcsv(path):
-    f = open(path)
-    header = f.readline()
-    columns = header.strip().split(",")
-    assert columns[:4] == ["id", "time", "freq", "amp"]
-    current_id = -1
-    partials = []
-    for line in f:
-        uid, time, freq, amp = line.strip().split(",")[:4]
-        uid = int(uid)
-        if uid != current_id:
-            if current_id >= 0:
-                assert len(times) > 0
-                partial = Partial(current_id, times, freqs, amps)
-                current_id = uid
-                partials.append(partial)
-                times, freqs, amps = [], [], []
-            else:
-                times, freqs, amps = [], [], []
-                current_id = uid
-        else:
-            times.append(time)
-            freqs.append(freq)
-            amps.append(amp)       
-    partials.append( Partial(current_id, times, freqs, amps) )
-    assert partials
-    return Spectrum(partials)
-
-def fromtxt(path, debug=True):
-    f = open(path)
-    it = iter(f)
-    it.next(); it.next()
-    npartials = int(it.next().split()[1])
-    it.next()
-    partials = []
-    EPSILON = 1e-10
-    nextline = it.next
-    skipped = 0
-    while npartials > 0:
-        partial_id = float(nextline().split()[0])
-        data = np.fromstring(nextline(), sep=" ", dtype=float)
-        times = data[::3]
-        freqs = data[1::3]
-        amps = data[2::3]
-        # check if any point has the same time as the previous one
-        # if this is the case, shift the second point to the right a minimal amount
-        if len(times) > 2:
-            for i in range(10):
-                same = times[1:] - times[:-1] == 0
-                if same.any():
-                    _logger.warn("duplicate points found")
-                    times[1:][same] += EPSILON
-                else:
-                    break
-        dur = times[-1] - times[0]
-        if dur > 0:
-            partial = Partial(partial_id, times, freqs, amps)
-            partials.append(partial)
-        else:
-            skipped += 1
-        npartials -= 1
-    if skipped:
-        _logger.warn("Skipped %d partials without duration" % skipped)
-    return Spectrum(partials)
-
-def fromhdf5(path, method="fast"):
-    try:
-        import pandas
-    except ImportError:
-        raise ImportError("Could not find pandas. HDF5 support is not available!")
-    store = pandas.HDFStore(path, mode="r")
-    partials = []
-    partials_append = partials.append
-    if method == "fast":
-        for key, value in store.iteritems():
-            a = value.block0_values.read()
-            amp  = a[:,0]
-            freq = a[:,1]
-            time = a[:,2]
-            partial_id = int(key[2:])  # get rid of the /p
-            partial = Partial(partial_id, time, freq, amp)
-            partials_append(partial)
-    else:
-        for key in store.keys():
-            partial_id = int(key[2:])  # get rid of the /p
-            frame = store[key]
-            partial = Partial(partial_id, frame.time, frame.freq, frame.amp)
-            partials_append(partial)
-    store.close()
-    return Spectrum(partials)
-    
-def fromsdif(path):
-    return read_sdif(path)
-    
+        
 def _partial2dataframe(partial):
     time, freq = partial.freq.points()
     _, amp = partial.amp.points()
     return DataFrame({'time':time, 'freq':freq, 'amp':amp})
-
-class _Notes(object):
-    def __init__(self, notes):
-        """
-        a note is a midinote or a tuple (midinote, amp_in_dbs)
-        """
-        _notes = []
-        for n in notes:
-            if isinstance(n, (tuple, list)):
-                _notes.append(n)
-            else:
-                _notes.append((n, 0))
-        self.notes = _notes
-    def __str__(self):
-        lines = []
-        for n in self.notes:
-            midinote, amp = n
-            pitchstr = m2n(midinote).ljust(6)
-            l = "%s | %d" % (pitchstr, int(amp))
-            lines.append(l)
-        return "\n".join(lines)
-
 
         
 try:
