@@ -22,29 +22,50 @@ get_info() --> dict
                }
 
 """
-from . import spectrum as _spectrum
-from . import io
+import numpy as np
+import sndfileio
+import warnings as _warnings
+
 from .errors import *
+from . import config as _config
+from . import lib
+
 
 try:
     import loristrck
     AVAILABLE = True
 except ImportError:
+    _warnings.warn("loristrck is not available, the loris backend cannot be used")
     AVAILABLE = False
+
+
+# A backend should implement these functionality:
+#    * is_available() -> bool
+#    * get_info()     -> dict with keys defining the available functionality
+
     
 def is_available():
     return AVAILABLE
+
 
 def get_info():
     return {
         'analyze': True,
         'read_sdif': True,
-        'write_sdif': True
+        'write_sdif': True,
+        'analysis_options': {
+            'freq_drift': 'max. drift in frequency between 2 breakpoints',
+            'hop_time': 'hop time in seconds',
+            'sidelobe_level': 'sets the dhape of the Kaiser window used (in positive dB)',
+            'amp_floor': 'only breakpoints above this amplitude are kept'
+        }
     }
 
-def analyze(snd, resolution, window_width=None, verbose=False, **config):
+
+def analyze(snd, resolution, window_width=None, verbose=False, **kws):
     """
-    Analyze a soundfile for partial tracking. Depends on loristrck
+    Analyze a soundfile for partial tracking. Returns partialdata to be passed
+    to fromarray
 
     snd {string or (numpy.array, samplerate)} --> the soundfile as path or the samples and samplerate
     resolution   {Hz} --> the resolution of the analysis
@@ -52,30 +73,47 @@ def analyze(snd, resolution, window_width=None, verbose=False, **config):
     
     Other keywords will be passed directly to the Loris analyzer. Possible keywords are:
       
-    freq_drift --> max. drift in frequency between 2 breakpoints. Used in the tracking-phase
-    hop_time   --> hop time in seconds
-    freq_drift --> frequency drift in Hz is the maximum difference in frequency between 
+    freq_drift :: max. drift in frequency between 2 breakpoints. Used in the tracking-phase
+    hop_time   :: hop time in seconds
+    freq_drift :: frequency drift in Hz is the maximum difference in frequency between 
                    consecutive Breakpoints
-    sidelobe_level --> positive dB. Sets the shape of the Kaiser window used
-    amp_floor  --> only breakpoint above this amplitude are kept
+    sidelobe_level :: positive dB. Sets the shape of the Kaiser window used
+    amp_floor  :: only breakpoint above this amplitude are kept
+
+    monochannel:: The channel (as int) to use if snd is not mono, or 'mix'
+                  to mix down all channels
     """
     if not AVAILABLE:
         raise BackendNotAvailable("loristrck not available")
-    if verbose:
-        print("reading sndfile")
-    samples, sr = io.sndread(snd)
+
+    def warn_multichannel():
+        _warnings.warn(
+            "Soundfile has {numchannels} channels. "
+            "it will be converted to mono (channel: {monochannel})".format(**locals())
+        )
+
+    monochannel = kws.pop('monochannel', _config.CONFIG['monochannel'])
+    samples, sr = lib.sndreadmono(snd, channel=monochannel)
+    samples = lib.as_c_contiguous(samples)
+        
+    # original Loris behaviour
     if window_width is None:
-        window_width = resolution * 2 # original Loris behaviour
-    if verbose: print("analyzong samples")
-    partials = loristrck.analyze(samples, sr, resolution, window_width, **config)
-    if verbose: print("converting to Spectrum")
-    return _spectrum.fromarray(partials)
+        window_width = resolution * 2 
+    partialdata = loristrck.analyze(samples, sr, resolution, window_width, **kws)
+    return partialdata
+
 
 def read_sdif(sdiffile):
+    """
+    reads sdiffile, returns a list of (matrices, label) as expected by fromarray
+
+    To construct a Spectrum, call fromarray(read_sdif(sdiffile))
+    """
     if not AVAILABLE:
         raise BackendNotAvailable("loristrck not available")
-    partials = loristrck.read_sdif(sdiffile)
-    return _spectrum.fromarray(partials)
+    data = loristrck.read_sdif(sdiffile)
+    return data
+
 
 def write_sdif(outfile, matrices, labels=None, rbep=True, fadetime=0):
     """

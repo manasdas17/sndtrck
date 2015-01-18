@@ -1,9 +1,21 @@
 import bpf4
+import numpy as np
+from . import lib
+import warnings as _warnings
 
-__all__ = [
-    "bpf2partial"
-]
+try:
+    from .spectrum import Partial
+except ImportError:
+    def Partial(*args, **kws):
+        from sndtrck import spectrum
+        _warnings.warn("using deferred importing")
+        out = spectrum.Partial(*args, **kws)
+        global Partial
+        Partial = spectrum.Partial
+        return out
 
+
+@lib.public
 def bpf2partial(freq, amp=None, dt=None):
     """
     Create a Partial from a bpf representing
@@ -35,7 +47,5 @@ def bpf2partial(freq, amp=None, dt=None):
     freqs = f.mapn_between(N, x0, x1)
     amps = a.map(N)
     assert len(times) == len(freqs) == len(amps)
-    p = sndtrck.Partial(0, times, freqs, amps)
+    p = spectrum.Partial(0, times, freqs, amps)
     return p
-
-    

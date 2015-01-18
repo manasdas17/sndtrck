@@ -1,2 +1,7 @@
-class FunctionalityNotAvailable(BaseException): pass
-class BackendNotAvailable(BaseException): pass
+
+class FunctionalityNotAvailable(BaseException): 
+    pass
+
+
+class BackendNotAvailable(BaseException): 
+    pass
